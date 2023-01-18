@@ -338,6 +338,7 @@ class Scene(object):
             Scene: Scene representation.
         """
         s = cls()
+        print("support_mesh", support_mesh)
         s.add_object("support_object", support_mesh, pose=np.eye(4), support=True)
 
         for i, obj_mesh in enumerate(object_meshes):
@@ -363,15 +364,16 @@ def load_mesh(filename, mesh_root_dir, scale=None):
     """
     if filename.endswith(".json"):
         data = json.load(open(filename, "r"))
-        mesh_fname = data["object"].decode('utf-8')
+        mesh_fname = data["object"]
         mesh_scale = data["object_scale"] if scale is None else scale
     elif filename.endswith(".h5"):
         data = h5py.File(filename, "r")
-        mesh_fname = data["object/file"][()].decode('utf-8')
+        mesh_fname = "data/meshes/models/"+data["object/file"][()].split("/")[-1]
         mesh_scale = data["object/scale"][()] if scale is None else scale
     else:
         raise RuntimeError("Unknown file ending:", filename)
-
+    print("Loading mesh", mesh_fname, "with scale", mesh_scale)
+    print("Mesh root dir:", mesh_root_dir)
     obj_mesh = trimesh.load(os.path.join(mesh_root_dir, mesh_fname))
     obj_mesh = obj_mesh.apply_scale(mesh_scale)
 

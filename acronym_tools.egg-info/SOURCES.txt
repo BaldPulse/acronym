@@ -1,0 +1,12 @@
+LICENSE
+README.md
+setup.py
+acronym_tools/__init__.py
+acronym_tools/acronym.py
+acronym_tools.egg-info/PKG-INFO
+acronym_tools.egg-info/SOURCES.txt
+acronym_tools.egg-info/dependency_links.txt
+acronym_tools.egg-info/top_level.txt
+scripts/acronym_generate_scene.py
+scripts/acronym_render_observations.py
+scripts/acronym_visualize_grasps.py

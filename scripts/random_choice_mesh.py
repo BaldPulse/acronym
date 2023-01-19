@@ -23,7 +23,7 @@ command = """python3.8 scripts/acronym_generate_scene.py --objects \\
            data/grasps/{} \\
            data/grasps/{} \\
            data/grasps/{} --support \\
-           data/grasps/Table_99cf659ae2fe4b87b72437fd995483b_0.009700376721042367.h5
+           data/grasps/Table_1cfdff88d43bc6f7ff6ace05b36a5_0.005734488527288268.h5
            """
 print("To use the scene generator, run the following command:")
 print(command.format(*random_grasps))

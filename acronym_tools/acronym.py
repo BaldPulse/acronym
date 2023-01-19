@@ -159,10 +159,12 @@ class Scene(object):
 
         # get stable poses for object
         stable_obj = obj_mesh.copy()
-        stable_obj.vertices -= stable_obj.center_mass
+        # stable_obj.vertices -= stable_obj.center_mass
+        print("reached compute stable poses")
         stable_poses, stable_poses_probs = stable_obj.compute_stable_poses(
             threshold=0, sigma=0, n_samples=1
         )
+        print("finished compute stable poses")
         # stable_poses, stable_poses_probs = obj_mesh.compute_stable_poses(threshold=0, sigma=0, n_samples=1)
 
         # Sample support index
@@ -201,10 +203,10 @@ class Scene(object):
 
             pose = self._get_random_stable_pose(stable_poses, stable_poses_probs)
 
-            placement_T = np.dot(
-                np.dot(placement_T, pose), tra.translation_matrix(-obj_mesh.center_mass)
-            )
-            # placement_T = np.dot(placement_T, pose)
+            # placement_T = np.dot(
+            #     tra.translation_matrix(-obj_mesh.center_mass), np.dot(placement_T, pose)
+            # )
+            placement_T = np.dot(placement_T, pose)
 
             # Check collisions
             colliding = self.in_collision_with(
@@ -262,6 +264,9 @@ class Scene(object):
 
         if success:
             self.add_object(obj_id, obj_mesh, placement_T)
+            # axis for debugging
+            # axis = trimesh.creation.axis(origin_color=[1., 0, 0])
+            # self.add_object("axis"+obj_id, axis, placement_T)
         else:
             print("Couldn't place object", obj_id, "!")
 
@@ -297,13 +302,14 @@ class Scene(object):
             brightness (float, optional): Brightness of colors. Defaults to 1.0.
         """
         if not specific_objects:
+            print(self._objects)
             for obj_id, obj_mesh in self._objects.items():
                 obj_mesh.visual.face_colors[:, :3] = (
                     trimesh.visual.random_color() * brightness
                 )[:3]
         else:
             for object_id, color in specific_objects.items():
-                self._objects[object_id].visual.face_colors[:, :3] = color
+                self._objects[object_id].visual.color.face_colors[:, :3] = color
         return self
 
     def as_trimesh_scene(self):
@@ -338,7 +344,6 @@ class Scene(object):
             Scene: Scene representation.
         """
         s = cls()
-        print("support_mesh", support_mesh)
         s.add_object("support_object", support_mesh, pose=np.eye(4), support=True)
 
         for i, obj_mesh in enumerate(object_meshes):
@@ -370,13 +375,18 @@ def load_mesh(filename, mesh_root_dir, scale=None):
         data = h5py.File(filename, "r")
         mesh_fname = "data/meshes/models/"+data["object/file"][()].split("/")[-1]
         mesh_scale = data["object/scale"][()] if scale is None else scale
+        mesh_com = data["object/com"][()]
+        print("mesh_com", mesh_com, type(mesh_com))
     else:
         raise RuntimeError("Unknown file ending:", filename)
     print("Loading mesh", mesh_fname, "with scale", mesh_scale)
     print("Mesh root dir:", mesh_root_dir)
-    obj_mesh = trimesh.load(os.path.join(mesh_root_dir, mesh_fname))
+    print("load path", os.path.join(mesh_root_dir, mesh_fname))
+    obj_mesh = trimesh.load(os.path.join(mesh_root_dir, mesh_fname), force="mesh")
     obj_mesh = obj_mesh.apply_scale(mesh_scale)
-
+    # make sure the center of mass is at the origin
+    obj_mesh = obj_mesh.apply_translation(-mesh_com)
+    obj_mesh.center_mass = np.array([0,0,0])
     return obj_mesh
 
 

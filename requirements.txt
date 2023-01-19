@@ -1,6 +1,6 @@
 numpy
 h5py
-trimesh
+trimesh == 3.18.0
 pyrender
 matplotlib
 python-fcl

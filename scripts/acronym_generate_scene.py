@@ -31,7 +31,7 @@ import numpy as np
 import trimesh.path
 from shapely.geometry import Point
 
-from acronym_tools import Scene, load_mesh, load_grasps, create_gripper_marker
+from acronym_tools import Scene, load_mesh, load_grasps, create_gripper_marker, analyze_grasps
 
 
 def make_parser():
@@ -76,10 +76,12 @@ def main(argv=sys.argv[1:]):
     )
     scene = Scene.random_arrangement(object_meshes, support_mesh)
 
-    # show the random scene in 3D viewer
-    scene.colorize().as_trimesh_scene().show()
+    if not args.show_grasps:
+        # show the random scene in 3D viewer
+        scene.colorize().as_trimesh_scene().show()
 
     if args.show_grasps:
+        print("Showing grasps that are not in collision.")
         # load gripper mesh for collision check
         gripper_mesh = trimesh.load(
             Path(__file__).parent.parent / "data/franka_gripper_collision_mesh.stl"
@@ -88,7 +90,12 @@ def main(argv=sys.argv[1:]):
         for i, fname in enumerate(args.objects):
             T, success = load_grasps(fname)
             obj_pose = scene._poses["obj{}".format(i)]
-
+            grasp_type = analyze_grasps(fname, obj_pose, angular_threshold=0.1, linear_threshold=0.01, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0]))
+            print("Grasp type for object {}: {}".format(fname, grasp_type))
+            print("total number of lift grasps: {}".format(np.sum(grasp_type[:,0] == 1)))
+            print("total number of slide grasps: {}".format(np.sum(grasp_type[:,1] == 1)))
+            print("Showing {} grasps for object {}".format(len(T), fname))
+            print("Number of successful grasps: {}".format(np.sum(success == 1)))
             # check collisions
             collision_free = np.array(
                 [
@@ -101,7 +108,8 @@ def main(argv=sys.argv[1:]):
             )
 
             if len(collision_free) == 0:
-                continue
+                print("No collision free grasps found for object {}".format(fname))
+                # continue
 
             # add a gripper marker for every collision free grasp
             gripper_markers.extend(

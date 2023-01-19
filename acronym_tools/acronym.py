@@ -116,7 +116,7 @@ class Scene(object):
                 if not polygon[0].is_empty and polygon[0].area > min_area:
                     support_polygons.append(polygon[0])
                     support_polygons_T.append(trimesh.transformations.inverse_matrix(T))
-
+        print("type of sp:", type(support_polygons[0]))
         return support_polygons, support_polygons_T
 
     def _get_random_stable_pose(self, stable_poses, stable_poses_probs):
@@ -407,11 +407,73 @@ def load_grasps(filename):
     elif filename.endswith(".h5"):
         data = h5py.File(filename, "r")
         T = np.array(data["grasps/transforms"])
+        CoM = np.array(data["object/com"])
         success = np.array(data["grasps/qualities/flex/object_in_gripper"])
+        # move T by -CoM
+        T[:, :3, 3] -= CoM
     else:
         raise RuntimeError("Unknown file ending:", filename)
     return T, success
 
+def calc_torque(grasp_center, T, force, force_center):
+    """ 
+    Caculate the torque of a grasp due to a force. The pivot point is the grasp center.
+    Returns the decomposed torque in x, y, and z direction in the gripper's frame.
+    """
+    L = grasp_center - force_center
+    torque = np.cross(L.reshape(3), force.reshape(3)).reshape(3,1) # torque in world frame
+    torque_gripper = np.linalg.inv(T[:3, :3]).dot(torque) # torque in gripper frame
+    return torque_gripper
+
+def analyze_grasps(filename, pose, angular_threshold=0.1, linear_threshold=0.01, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0])):
+    "Analyze grasps under current stable placement to further classify grasps"
+    assert filename.endswith(".h5")
+    data = h5py.File(filename, "r")
+    closing_angular = np.array(data["grasps/qualities/flex/object_motion_during_closing_angular"])
+    closing_linear = np.array(data["grasps/qualities/flex/object_motion_during_closing_linear"])
+    shaking_angular = np.array(data["grasps/qualities/flex/object_motion_during_shaking_angular"])
+    shaking_linear = np.array(data["grasps/qualities/flex/object_motion_during_shaking_linear"])
+    T = np.array(data["grasps/transforms"])
+    # move T by -CoM for recentering
+    T[:, :3, 3] -= np.array(data["object/com"])
+    CoM = pose.dot(np.array([0,0,0,1]).reshape(4,1))[0:3] #CoM under current stable placement. Note that the CoM has been recentered in load_mesh()
+    mass = np.array(data["object/mass"])
+    success = np.array(data["grasps/qualities/flex/object_in_gripper"])
+    grasp_type = np.zeros((2000, 2), dtype=np.int32) # |lift|slide|
+    grasp_center_gripper = np.array([[0,0,-0.05,1]]).T
+    for i in range(len(T)):
+        if not success[i] or closing_angular[i] > angular_threshold or closing_linear[i] > linear_threshold \
+            or shaking_linear[i] > linear_threshold:
+            continue
+        else:
+            if shaking_angular[i] < angular_threshold:
+                grasp_type[i][0] = 1
+                grasp_type[i][1] = 1
+            else:
+                # lifting and sliding torque tests
+                grasp_center = pose.dot(T[i].dot(grasp_center_gripper))[0:3] # grasp center in world frame
+                # lifting test
+                G = np.array([0,0,-9.8]).reshape(3,1)* mass
+                lift_torques = np.abs(calc_torque(grasp_center, T[i], G, CoM))
+                # if all torques are smaller than max_static_torques, then it is a lift grasp
+                lifting_test_result = np.all(lift_torques < max_static_torques)
+                # sliding test
+                # TODO project CoM onto contact surface for a more accurate sliding test
+                # sample 60 directions uniformly in a circle
+                sliding_test_result = True
+                for dir_i in range(0, 60):
+                    dir = dir_i * 2 * np.pi / 60
+                    F = np.array([np.cos(dir), np.sin(dir), 0])*mass*9.8 * frictional_coef
+                    slide_torques = np.abs(calc_torque(grasp_center, T[i], F, CoM))
+                    sliding_test_result_i = np.all(slide_torques < max_static_torques)
+                    sliding_test_result = sliding_test_result and sliding_test_result_i
+                if lifting_test_result:
+                    print("pass lifting test")
+                    grasp_type[i,0] = 1
+                if sliding_test_result:
+                    print("pass sliding test")
+                    grasp_type[i,1] = 1
+    return grasp_type
 
 def create_gripper_marker(color=[0, 0, 255], tube_radius=0.001, sections=6):
     """Create a 3D mesh visualizing a parallel yaw gripper. It consists of four cylinders.

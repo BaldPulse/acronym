@@ -116,7 +116,6 @@ class Scene(object):
                 if not polygon[0].is_empty and polygon[0].area > min_area:
                     support_polygons.append(polygon[0])
                     support_polygons_T.append(trimesh.transformations.inverse_matrix(T))
-        print("type of sp:", type(support_polygons[0]))
         return support_polygons, support_polygons_T
 
     def _get_random_stable_pose(self, stable_poses, stable_poses_probs):
@@ -160,11 +159,9 @@ class Scene(object):
         # get stable poses for object
         stable_obj = obj_mesh.copy()
         # stable_obj.vertices -= stable_obj.center_mass
-        print("reached compute stable poses")
         stable_poses, stable_poses_probs = stable_obj.compute_stable_poses(
             threshold=0, sigma=0, n_samples=1
         )
-        print("finished compute stable poses")
         # stable_poses, stable_poses_probs = obj_mesh.compute_stable_poses(threshold=0, sigma=0, n_samples=1)
 
         # Sample support index
@@ -376,12 +373,8 @@ def load_mesh(filename, mesh_root_dir, scale=None):
         mesh_fname = "data/meshes/models/"+data["object/file"][()].split("/")[-1]
         mesh_scale = data["object/scale"][()] if scale is None else scale
         mesh_com = data["object/com"][()]
-        print("mesh_com", mesh_com, type(mesh_com))
     else:
         raise RuntimeError("Unknown file ending:", filename)
-    print("Loading mesh", mesh_fname, "with scale", mesh_scale)
-    print("Mesh root dir:", mesh_root_dir)
-    print("load path", os.path.join(mesh_root_dir, mesh_fname))
     obj_mesh = trimesh.load(os.path.join(mesh_root_dir, mesh_fname), force="mesh")
     obj_mesh = obj_mesh.apply_scale(mesh_scale)
     # make sure the center of mass is at the origin
@@ -425,8 +418,13 @@ def calc_torque(grasp_center, T, force, force_center):
     torque_gripper = np.linalg.inv(T[:3, :3]).dot(torque) # torque in gripper frame
     return torque_gripper
 
-def analyze_grasps(filename, pose, angular_threshold=0.1, linear_threshold=0.01, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0])):
-    "Analyze grasps under current stable placement to further classify grasps"
+def analyze_grasps(filename, pose, collision_free, angular_threshold=0.01, linear_threshold=0.01, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0])):
+    '''
+    Analyze grasps under current stable placement to further classify grasps
+    '''
+    # scene for debugging
+    axis_scene = trimesh.scene.Scene()
+
     assert filename.endswith(".h5")
     data = h5py.File(filename, "r")
     closing_angular = np.array(data["grasps/qualities/flex/object_motion_during_closing_angular"])
@@ -437,15 +435,25 @@ def analyze_grasps(filename, pose, angular_threshold=0.1, linear_threshold=0.01,
     # move T by -CoM for recentering
     T[:, :3, 3] -= np.array(data["object/com"])
     CoM = pose.dot(np.array([0,0,0,1]).reshape(4,1))[0:3] #CoM under current stable placement. Note that the CoM has been recentered in load_mesh()
+    CoM_mat = np.array([[1,0,0,CoM[0]],[0,1,0,CoM[1]],[0,0,1,CoM[2]],[0,0,0,1]])
+    axis = trimesh.creation.axis(origin_color=[1., 0, 0], origin_size=0.001, axis_length=0.05, axis_radius=0.001)
+    axis_scene.add_geometry(axis, transform=CoM_mat)
     mass = np.array(data["object/mass"])
     success = np.array(data["grasps/qualities/flex/object_in_gripper"])
     grasp_type = np.zeros((2000, 2), dtype=np.int32) # |lift|slide|
-    grasp_center_gripper = np.array([[0,0,-0.05,1]]).T
+    grasp_center_gripper = np.array([[0,0,0.08,1]]).T
+    grasp_center_gripper_mat = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0.08],[0,0,0,1]])
+    print("angular_threshold", angular_threshold, "linear_threshold", linear_threshold)
     for i in range(len(T)):
+        # if i not in collision_free:
+        #     continue
         if not success[i] or closing_angular[i] > angular_threshold or closing_linear[i] > linear_threshold \
             or shaking_linear[i] > linear_threshold:
             continue
         else:
+            # axis for debugging
+            axis = trimesh.creation.axis(origin_color=[1., 0, 0], origin_size=0.001, axis_length=0.05, axis_radius=0.001)
+            axis_scene.add_geometry(axis, transform=pose.dot(T[i].dot(grasp_center_gripper_mat)))
             if shaking_angular[i] < angular_threshold:
                 grasp_type[i][0] = 1
                 grasp_type[i][1] = 1
@@ -455,6 +463,7 @@ def analyze_grasps(filename, pose, angular_threshold=0.1, linear_threshold=0.01,
                 # lifting test
                 G = np.array([0,0,-9.8]).reshape(3,1)* mass
                 lift_torques = np.abs(calc_torque(grasp_center, T[i], G, CoM))
+                print("lift_torques:", lift_torques)
                 # if all torques are smaller than max_static_torques, then it is a lift grasp
                 lifting_test_result = np.all(lift_torques < max_static_torques)
                 # sliding test
@@ -473,7 +482,7 @@ def analyze_grasps(filename, pose, angular_threshold=0.1, linear_threshold=0.01,
                 if sliding_test_result:
                     print("pass sliding test")
                     grasp_type[i,1] = 1
-    return grasp_type
+    return grasp_type, axis_scene
 
 def create_gripper_marker(color=[0, 0, 255], tube_radius=0.001, sections=6):
     """Create a 3D mesh visualizing a parallel yaw gripper. It consists of four cylinders.

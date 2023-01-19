@@ -90,10 +90,6 @@ def main(argv=sys.argv[1:]):
         for i, fname in enumerate(args.objects):
             T, success = load_grasps(fname)
             obj_pose = scene._poses["obj{}".format(i)]
-            grasp_type = analyze_grasps(fname, obj_pose, angular_threshold=0.1, linear_threshold=0.01, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0]))
-            print("Grasp type for object {}: {}".format(fname, grasp_type))
-            print("total number of lift grasps: {}".format(np.sum(grasp_type[:,0] == 1)))
-            print("total number of slide grasps: {}".format(np.sum(grasp_type[:,1] == 1)))
             print("Showing {} grasps for object {}".format(len(T), fname))
             print("Number of successful grasps: {}".format(np.sum(success == 1)))
             # check collisions
@@ -106,10 +102,14 @@ def main(argv=sys.argv[1:]):
                     )
                 ]
             )
+            grasp_type, axis_scene = analyze_grasps(fname, obj_pose, collision_free, angular_threshold=1, linear_threshold=1, frictional_coef=0.5, max_static_torques = np.array([1.0,1.0,1.0]))
+            print("Grasp type for object {}: {}".format(fname, grasp_type))
+            print("total number of lift grasps: {}".format(np.sum(grasp_type[:,0] == 1)))
+            print("total number of slide grasps: {}".format(np.sum(grasp_type[:,1] == 1)))
 
             if len(collision_free) == 0:
                 print("No collision free grasps found for object {}".format(fname))
-                # continue
+                continue
 
             # add a gripper marker for every collision free grasp
             gripper_markers.extend(
@@ -117,13 +117,13 @@ def main(argv=sys.argv[1:]):
                     create_gripper_marker(color=[0, 255, 0]).apply_transform(
                         np.dot(obj_pose, t)
                     )
-                    for t in T[success == 1][collision_free]
+                    for t in T[success == 1]#[collision_free]
                 ]
             )
 
         # show scene together with successful and collision-free grasps of all objects
         trimesh.scene.scene.append_scenes(
-            [scene.colorize().as_trimesh_scene(), trimesh.Scene(gripper_markers)]
+            [scene.colorize().as_trimesh_scene(), trimesh.Scene(gripper_markers), axis_scene]
         ).show()
 
 
